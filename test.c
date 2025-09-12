@@ -1,10 +1,10 @@
 #include "core1.h"
-
 int main() {
+
     Oc_Arena arena = {0};
     for (int i = 0; i < 200; i++) {
         int* a = oc_arena_alloc(&arena, sizeof(int));
-        print("{}\n", a);
+        // print("{}\n", a);
     }
 
     Oc_String_Builder builder;

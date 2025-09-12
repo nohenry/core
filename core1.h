@@ -1,10 +1,24 @@
 #pragma once
-#include <sys/mman.h>
+#ifdef OC_CORE_DEFINED
+#error "oc_core has already been included"
+#endif
+#define OC_CORE_DEFINED
+
 #include <stdbool.h>
 #include <stdarg.h>
 #include <inttypes.h>
-#include <unistd.h>
-#define MAP_UNINITIALIZED 0x4000000
+
+#if defined(_WIN32) || defined(_WIN64)
+#define OC_PLATFORM_WINDOWS 1
+#else
+#define OC_PLATFORM_UNIX 1
+#endif
+
+#if defined __STDC_VERSION__ && __STDC_VERSION__ >= 202311L
+#else
+    #define typeof __typeof__
+#endif
+
 
 typedef unsigned char          uint8;
 typedef signed char            sint8;
@@ -16,17 +30,59 @@ typedef unsigned long long int uint64;
 typedef signed long long int   sint64;
 typedef unsigned long long int uword;
 typedef signed long long int   sword;
-typedef struct {
+
+// typedef 
+typedef struct __declspec(intrin_type) {
     char* ptr;
     uword len;
 } string;
 
-void *memset(void *s, int c, unsigned long n);
+#if OC_PLATFORM_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    // #include "Windows.h"
+    // #define typeof decltype
+
+    #define WINAPI __stdcall
+    #define MEM_RESERVE                     0x00002000  
+    #define MEM_COMMIT                      0x00001000  
+    #define PAGE_READWRITE          0x04    
+    typedef void* HANDLE;
+
+    #define STD_INPUT_HANDLE    ((sint32)-10)
+    #define STD_OUTPUT_HANDLE   ((sint32)-11)
+    #define STD_ERROR_HANDLE    ((sint32)-12)
+
+    _Noreturn void WINAPI ExitProcess(uint32 uExitCode);
+    void* WINAPI VirtualAlloc(void* lpAddress, sword dwSize, sint32 flAllocationType, sint32 flProtect);
+    HANDLE WINAPI GetStdHandle(sint32 nStdHandle);
+
+    sint32 WINAPI WriteFile(
+        HANDLE hFile,
+        const void* lpBuffer,
+        sint32 nNumberOfBytesToWrite,
+        sint32* lpNumberOfBytesWritten,
+        void* lpOverlapped
+    );
+
+#elif OC_PLATFORM_UNIX
+    #include <sys/mman.h>
+    #include <unistd.h>
+    // #define typeof __typeof__
+    #define MAP_UNINITIALIZED 0x4000000
+#else
+    #error "invalid platform"
+    // #define typeof __typeof__
+#endif
+
+void *memset(void *s, int c, size_t n);
 void *memcpy(void *dest, const void *src, size_t n);
-void exit(int status) __attribute__((noreturn));
+// void exit(int status) __attribute__((noreturn));
 size_t strlen(const char *s);
-void abort(void);
-int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char *file, unsigned int line, const char *function);
+// int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char *file, unsigned int line, const char *function);
+
+_Noreturn void oc_exit(int status)  {
+    ExitProcess(status);
+}
 
 #define assert(expr) ((expr) ? 1 : _oc_assert_fail(#expr, __FILE__, __LINE__, __func__))
 
@@ -34,20 +90,12 @@ int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char 
                    type*                : OC_TYPE_POINTER, \
     const          type*                : OC_TYPE_POINTER, \
     const volatile type*                : OC_TYPE_VOLATILE_POINTER, \
-    const          type* volatile       : OC_TYPE_POINTER_VOLATILE, \
-    const volatile type* volatile       : OC_TYPE_VOLATILE_POINTER_VOLATILE, \
-                   type*          const : OC_TYPE_POINTER, \
-          volatile type*          const : OC_TYPE_VOLATILE_POINTER, \
-                   type* volatile const : OC_TYPE_POINTER_VOLATILE, \
-          volatile type* volatile const : OC_TYPE_VOLATILE_POINTER_VOLATILE, \
           volatile type*                : OC_TYPE_VOLATILE_POINTER, \
-                   type* volatile       : OC_TYPE_POINTER_VOLATILE, \
-          volatile type* volatile       : OC_TYPE_VOLATILE_POINTER_VOLATILE,
-
+          
+#if __STDC_VERSION__ >= 201112L
 #define typeinfo_kind(x) _Generic((x),                 \
         char:               OC_TYPE_CHAR,              \
         unsigned char:      OC_TYPE_UNSIGNED_CHAR,     \
-        signed char:        OC_TYPE_SIGNED_CHAR,       \
         unsigned short:     OC_TYPE_UNSIGNED_SHORT,    \
         short:              OC_TYPE_SHORT,             \
         unsigned int:       OC_TYPE_UNSIGNED_INT,      \
@@ -62,7 +110,6 @@ int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char 
         char*:              OC_TYPE_CHAR_STRING,       \
         const char*:        OC_TYPE_CHAR_STRING,       \
         typeinfo_gen_type_variants_ptr1(unsigned char)      \
-        typeinfo_gen_type_variants_ptr1(signed char)        \
         typeinfo_gen_type_variants_ptr1(unsigned short)     \
         typeinfo_gen_type_variants_ptr1(short)              \
         typeinfo_gen_type_variants_ptr1(unsigned int)       \
@@ -78,7 +125,6 @@ int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char 
 \
         char**:               OC_TYPE_POINTER_POINTER,               \
         unsigned char**:      OC_TYPE_POINTER_POINTER,               \
-        signed char**:        OC_TYPE_POINTER_POINTER,               \
         unsigned short**:     OC_TYPE_POINTER_POINTER,               \
         short**:              OC_TYPE_POINTER_POINTER,               \
         unsigned int**:       OC_TYPE_POINTER_POINTER,               \
@@ -97,6 +143,10 @@ int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char 
         string**: OC_TYPE_POINTER_POINTER, \
         default:  assert(false && "unsupported type: "#x) \
     )
+#else
+#error "unsupported typeinfo"
+#define typeinfo_kind(x) 0
+#endif
 
 typedef enum {
     OC_TYPE_CHAR,
@@ -132,15 +182,24 @@ typedef struct {
 } Oc_Generic;
 
 #define null ((void*)0)
-#define OC_OOM() do { print("Out of memory: {}:{}\n", __FILE__, __LINE__); exit(-1); } while (0)
-#define max(a, b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a > _b ? _a : _b; })
-#define min(a, b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a < _b ? _a : _b; })
+#define OC_OOM() do { print("Out of memory: {}:{}\n", __FILE__, __LINE__); oc_exit(-1); } while (0)
 #define lit(s) ((string){ s, sizeof(s)-1 })
 #define INFINITY __builtin_inff()
 #define NAN __builtin_nanf("")
 
-#define _oc_generic_tmp(x) __typeof__(_Generic((x), float: (float)0, double: (double)0, long double: (long double)0, string: (string){}, default: (uword)0))
-#define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ _oc_generic_tmp(x) ___p = (_oc_generic_tmp(x))(x); &___p; }) })
+#ifndef max
+#define max(a, b) ({ typeof(a) _a = (a); typeof(b) _b = (b); _a > _b ? _a : _b; })
+#endif
+#ifndef min
+#define min(a, b) ({ typeof(a) _a = (a); typeof(b) _b = (b); _a < _b ? _a : _b; })
+#endif
+
+#define _oc_generic_tmp(___y) typeof(_Generic((___y), float: (float)0, double: (double)0, long double: (long double)0, string: ((string){0}), default: (uword)0))
+#define _oc_generic_cast(x) _Generic((x), string: (x), default: (_oc_generic_tmp(x))(x))
+
+// #define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ typeof(x) ___p1 = (x); uint8 ___p[sizeof(x)]; memcpy(___p, &___p1, sizeof(x)); &___p; }) })
+// #define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ _oc_generic_tmp(x) ___p = (_oc_generic_tmp(x))(x); &___p; }) })
+#define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ _oc_generic_tmp(x) ___p = _oc_generic_cast(x); &___p; }) })
 #define wprint(writer, fmt, ...) _oc_printw(writer, fmt OC_MAP(OC_MAKE_GENERIC, ##__VA_ARGS__))
 #define print(fmt, ...) _oc_printw(&stdout_writer, fmt OC_MAP(OC_MAKE_GENERIC, __VA_ARGS__))
 // #define print(fmt, ...) OC_MAP_1(a, b)
@@ -192,26 +251,64 @@ typedef struct {
 #define OC_MAP_SEQ_16(transform_macro, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16) transform_macro(a1) transform_macro(a2) transform_macro(a3) transform_macro(a4) transform_macro(a5) transform_macro(a6) transform_macro(a7) transform_macro(a8) transform_macro(a9) transform_macro(a10) transform_macro(a11) transform_macro(a12) transform_macro(a13) transform_macro(a14) transform_macro(a15) transform_macro(a16)
 
 typedef struct oc_writer {
-    uword (*write)(void* writer, const uint8* data, uword data_size);
+    uword (*write)(void* writer, const void* data, uword data_size);
 } Oc_Writer;
 
 extern Oc_Writer stdout_writer;
 extern Oc_Writer stderr_writer;
 void _oc_printw(void *writer, const char* fmt, ...);
 
-int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char *file, unsigned int line, const char *function)  {
+_Noreturn int _oc_assert_fail(const char *assertion, const char *file, unsigned int line, const char *function)  {
     eprint("assert: {}:{}: {}\n", file, line, assertion);
-    exit(-1);
+    oc_exit(-1);
 }
+#ifdef OC_PLATFORM_WINDOWS
+    void* oc_allocate_pages(uword required_size) {
+        return VirtualAlloc(null, required_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    }
 
-typedef enum {
-	OC_ALLOC_KIND_ALLOC,
-	OC_ALLOC_KIND_FREE,
-} Oc_Alloc_Kind;
+    uword stdout_write(void* writer, const void* data, uword data_size) {
+        HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        uword total_written = 0;
 
-typedef struct {
+        while (total_written < data_size) {
+            sint32 written = 0;
+            if (!WriteFile(handle, data, data_size, &written, null)) {
+                eprint("WriteFile failed\n");
+                return 0;
+            }
+            total_written += written;
+        }
+        return total_written;
+    }
 
-} Oc_Allocator;
+    uword stderr_write(void* writer, const void* data, uword data_size) {
+        HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
+        uword total_written = 0;
+
+        while (total_written < data_size) {
+            sint32 written = 0;
+            if (!WriteFile(handle, data, data_size, &written, null)) {
+                eprint("WriteFile failed\n");
+                return 0;
+            }
+            total_written += written;
+        }
+        return total_written;
+    }
+#else
+    void* oc_allocate_pages(uword required_size) {
+        return mmap(null, required_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_UNINITIALIZED, -1, 0);
+    }
+
+    uword stdout_write(void* writer, const uint8* data, uword data_size) {
+        return write(STDOUT_FILENO, data, (size_t)data_size);
+    }
+
+    uword stderr_write(void* writer, const uint8* data, uword data_size) {
+        return write(STDERR_FILENO, data, (size_t)data_size);
+    }
+#endif
 
 #define OC_ARENA_CHUNK_SIZE (4096)
 
@@ -239,8 +336,8 @@ static inline uword oc_align_forward(uword value, uword alignment_in_bytes) {
 Oc_Arena_Chunk* oc_arena_new_chunk(Oc_Arena* arena, uword size_in_bytes) {
     // Oc_Arena_Chunk* chunk = malloc(OC_ARENA_CHUNK_SIZE /* should be word aligned */);
     uword aligned_bytes = oc_align_forward(size_in_bytes, OC_ARENA_CHUNK_SIZE);
-    Oc_Arena_Chunk* chunk = mmap(null, aligned_bytes, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_UNINITIALIZED, -1, 0);
-    if (chunk == (void*)(arena->current->data + chunk->size)) {
+    Oc_Arena_Chunk* chunk = oc_allocate_pages(aligned_bytes);
+    if (arena->current && chunk == (void*)(arena->current->data + chunk->size)) {
         // if new chunk is right after current chunk, just extend current chunk
         chunk->size += aligned_bytes;
         return arena->current;
@@ -304,7 +401,7 @@ void* oc_arena_realloc(Oc_Arena* arena, void* old_ptr, uint64 old_size, uint64 s
 
     print("oc_arena_realloc: old_ptr = {}, old_size = {}, size = {}\n", old_ptr, old_size, size);
     assert(arena->current);
-    if (old_ptr + old_size == arena->current->data + arena->current->used) {
+    if ((uint8*)old_ptr + old_size == (uint8*)(arena->current->data + arena->current->used)) {
         if (arena->current->used + (new_words - old_words) <= arena->current->size) {
             print("oc_arena_realloc: Reusing memory :)\n");
             // reuse memory
@@ -325,7 +422,7 @@ void* oc_arena_realloc(Oc_Arena* arena, void* old_ptr, uint64 old_size, uint64 s
     if (!new_ptr) OC_OOM();
 
     void* end_of_last_used = arena->current->data + arena->current->used;
-    if (old_ptr + old_size == end_of_last_used && new_ptr == old_ptr + old_size) {
+    if ((uint8*)old_ptr + old_size == end_of_last_used && new_ptr == (uint8*)old_ptr + old_size) {
         print("oc_arena_realloc: Reusing extended chunk :)\n");
         // If the new pointer is right after the old pointer, we can just extend it
         arena->current->used += new_words - old_words;
@@ -385,23 +482,16 @@ string oc_sb_to_string(Oc_String_Builder* sb) {
 }
 
 
-uword oc_sb_writer_write(void* writer, const uint8* data, uword data_size) {
+uword oc_sb_writer_write(void* writer, const void* data, uword data_size) {
     Oc_String_Builder* w = writer;
     oc_sb_append_string(w, (string) { .ptr = (char*)data, .len = data_size });
+    return data_size;
 }
 
 void oc_sb_init(Oc_String_Builder* sb, Oc_Arena* arena) {
     memset(sb, 0, sizeof(Oc_String_Builder));
     sb->writer.write = oc_sb_writer_write;
     sb->arena = arena;
-}
-
-uword stdout_write(void* writer, const uint8* data, uword data_size) {
-    return write(STDOUT_FILENO, data, (size_t)data_size);
-}
-
-uword stderr_write(void* writer, const uint8* data, uword data_size) {
-    return write(STDERR_FILENO, data, (size_t)data_size);
 }
 
 Oc_Writer stdout_writer = {
