@@ -105,15 +105,15 @@ No arguments:
 
 // #include "core1.h"
 #include <stdbool.h>
-#include <assert.h>
 #include <limits.h>
+#include <assert.h>
 #include <stdint.h>
 
-#ifndef OC_LEN
-#define OC_LEN(arr) (sizeof(arr)/sizeof((arr)[0]))
+#ifndef oc_len
+#define oc_len(arr) (sizeof(arr)/sizeof((arr)[0]))
 #endif
-#ifndef OC_PUN
-#define OC_PUN(value, type) ({ __typeof__(value) _v = (value); *(type*)&_v; })
+#ifndef oc_pun
+#define oc_pun(value, type) ({ __typeof__(value) _v = (value); *(type*)&_v; })
 #endif
 
 typedef struct {
@@ -862,7 +862,7 @@ typedef struct {
 	unsigned char use_sib, rbp_is_rip;
 } X86_64_Instruction_Parameters;
 
-X86_64_Variant_Kind oc_x86_64_get_inverse_compare(X86_64_Variant_Kind kind);
+X86_64_Variant_Kind oc_x86_64_get_inverse_compare(unsigned int /* OPCODE */ opcode);
 void oc_x86_64_write_nop(OC_Machine_Code_Writer* b, unsigned char byte_count);
 void oc_x86_64_write_instruction(OC_Machine_Code_Writer* b, X86_64_Variant_Kind variant, X86_64_Instruction_Variant instruction, X86_64_Instruction_Parameters parameters);
 void oc_x86_64_run_tests(OC_Machine_Code_Writer* b);
@@ -2106,8 +2106,8 @@ const X86_64_Instruction x86_64_instructions_table[] = {
 
 const long long int x86_64_instructions_table_size = sizeof(x86_64_instructions_table);
 
-X86_64_Variant_Kind oc_x86_64_get_inverse_compare(X86_64_Variant_Kind kind) {
-    switch (kind) {
+X86_64_Variant_Kind oc_x86_64_get_inverse_compare(unsigned int /* OPCODE*/ opcode) {
+    switch (opcode) {
     case OPCODE_JO: return OPCODE_JNO;
     case OPCODE_JNO: return OPCODE_JO;
     case OPCODE_JA: return OPCODE_JBE;
@@ -2125,7 +2125,7 @@ X86_64_Variant_Kind oc_x86_64_get_inverse_compare(X86_64_Variant_Kind kind) {
     case OPCODE_JGE: return OPCODE_JL;
     case OPCODE_JL: return OPCODE_JGE;
     case OPCODE_JLE: return OPCODE_JG;
-    default: assert(false);
+    default: assert(false); return 0;
     }
 }
 
@@ -2194,7 +2194,7 @@ static bool x86_64_uses_modrm(X86_64_Variant_Kind kind) {
 void oc_x86_64_write_nop(OC_Machine_Code_Writer* b, unsigned char byte_count) {
 #define WRITE_NOP(...) ({ 										\
             unsigned char bytes[] = {__VA_ARGS__};					\
-            b->append_many((void*)b, bytes, OC_LEN(bytes));	\
+            b->append_many((void*)b, bytes, oc_len(bytes));	\
         })
     switch (byte_count) {
     case 2: WRITE_NOP(0x66, 0x90); break;
@@ -2486,7 +2486,7 @@ DO_MODRM_ ##n : 											\
                 if (offset == 0)  {
                     // rbp as base means no base, only if mod is 0
                     if (base_reg == X86_64_OPERAND_REGISTER_rbp) {
-                        // TODO: i feel like this might be wrong, below too
+                        // oc_todo: i feel like this might be wrong, below too
                         assert((mod >> 6) == 0);
                         if (parameters.use_sib & X86_64_SIB_SCALE) {
                         } else if (!parameters.rbp_is_rip) {
@@ -2507,32 +2507,32 @@ DO_MODRM_ ##n : 											\
                     mod |= 0x40;
                     X86_64_APPEND_OP_SEGMENT(mod);
                     X86_64_APPEND_OP_SEGMENT(sib);
-                    X86_64_APPEND_OP_SEGMENT(OC_PUN((signed char)offset, unsigned char));
+                    X86_64_APPEND_OP_SEGMENT(oc_pun((signed char)offset, unsigned char));
                 } else if (offset >= INT32_MIN && offset <= INT32_MAX) {
                     mod |= 0x80;
                     X86_64_APPEND_OP_SEGMENT(mod);
                     X86_64_APPEND_OP_SEGMENT(sib);
-                    X86_64_APPEND_OP_SEGMENT(OC_PUN((int)offset, unsigned int));
+                    X86_64_APPEND_OP_SEGMENT(oc_pun((int)offset, unsigned int));
                 }
             } else if (base_reg == X86_64_OPERAND_REGISTER_rbp && parameters.rbp_is_rip) {
                 X86_64_APPEND_OP_SEGMENT(mod);
-                X86_64_APPEND_OP_SEGMENT(OC_PUN((int)offset, unsigned int));
+                X86_64_APPEND_OP_SEGMENT(oc_pun((int)offset, unsigned int));
             } else if (offset == 0 && base_reg != X86_64_OPERAND_REGISTER_rbp) {
                 X86_64_APPEND_OP_SEGMENT(mod);
             } else if (offset >= INT8_MIN && (signed char)offset <= INT8_MAX) {
                 mod |= 0x40;
                 X86_64_APPEND_OP_SEGMENT(mod);
-                X86_64_APPEND_OP_SEGMENT(OC_PUN((signed char)offset, unsigned char));
+                X86_64_APPEND_OP_SEGMENT(oc_pun((signed char)offset, unsigned char));
             } else if (offset >= INT32_MIN && (int)offset <= INT32_MAX) {
                 mod |= 0x80;
                 X86_64_APPEND_OP_SEGMENT(mod);
-                X86_64_APPEND_OP_SEGMENT(OC_PUN((int)offset, unsigned int));
+                X86_64_APPEND_OP_SEGMENT(oc_pun((int)offset, unsigned int));
             } else {
                 assert(false);
             }
         } else {
             /* if (!has_vex_vvvv) { */
-                // TODO: do we need this?
+                // oc_todo: do we need this?
                 mod |= 0xc0;
             /* } */
             X86_64_APPEND_OP_SEGMENT(mod);
@@ -2556,7 +2556,7 @@ DO_MODRM_ ##n : 											\
     case X86_64_VARIANT_KIND_r64_rm64_i8:
        case X86_64_VARIANT_KIND_ax_i8:
        case X86_64_VARIANT_KIND_eax_i8:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((signed char)parameters.immediate, unsigned char));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((signed char)parameters.immediate, unsigned char));
            break;
 
     case X86_64_VARIANT_KIND_ax_i16:
@@ -2564,7 +2564,7 @@ DO_MODRM_ ##n : 											\
     case X86_64_VARIANT_KIND_r16_i16:
     case X86_64_VARIANT_KIND_i16:
     case X86_64_VARIANT_KIND_r16_rm16_i16:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((short)parameters.immediate, unsigned short));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((short)parameters.immediate, unsigned short));
         break;
 
     case X86_64_VARIANT_KIND_rax_i32:
@@ -2575,25 +2575,25 @@ DO_MODRM_ ##n : 											\
     case X86_64_VARIANT_KIND_i32:
     case X86_64_VARIANT_KIND_r32_rm32_i32:
        case X86_64_VARIANT_KIND_r64_rm64_i32:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((int)parameters.immediate, unsigned int));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((int)parameters.immediate, unsigned int));
         break;
 
     case X86_64_VARIANT_KIND_r64_i64:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((long long int)parameters.immediate, unsigned long long int));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((long long int)parameters.immediate, unsigned long long int));
         break;
 
 
     /* Relative addresses */
     case X86_64_VARIANT_KIND_rel8:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((signed char)parameters.relative, unsigned char));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((signed char)parameters.relative, unsigned char));
            break;
 
     case X86_64_VARIANT_KIND_rel16:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((short)parameters.relative, unsigned short));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((short)parameters.relative, unsigned short));
            break;
 
     case X86_64_VARIANT_KIND_rel32:
-        X86_64_APPEND_OP_SEGMENT(OC_PUN((int)parameters.relative, unsigned int));
+        X86_64_APPEND_OP_SEGMENT(oc_pun((int)parameters.relative, unsigned int));
            break;
 
     default: break;
