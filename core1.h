@@ -14,6 +14,10 @@
 #define OC_PLATFORM_UNIX 1
 #endif
 
+#if __STDC_VERSION__ == 201710L
+    #define __typeof__(a) int
+#endif
+
 #if defined __STDC_VERSION__ && __STDC_VERSION__ >= 202311L
 #else
     #define typeof __typeof__
@@ -32,43 +36,52 @@ typedef unsigned long long int uword;
 typedef signed long long int   sword;
 
 // typedef 
-typedef struct __declspec(intrin_type) {
+typedef struct {
     char* ptr;
     uword len;
 } string;
 
 #if OC_PLATFORM_WINDOWS
     #define WIN32_LEAN_AND_MEAN
-    // #include "Windows.h"
+    #include "Windows.h"
     // #define typeof decltype
 
-    #define WINAPI __stdcall
-    #define MEM_RESERVE                     0x00002000  
-    #define MEM_COMMIT                      0x00001000  
-    #define PAGE_READWRITE          0x04    
-    typedef void* HANDLE;
+    // #define WINAPI __stdcall
+    // #define MEM_RESERVE                     0x00002000  
+    // #define MEM_COMMIT                      0x00001000  
+    // #define PAGE_READWRITE          0x04    
+    // typedef void* HANDLE;
 
-    #define STD_INPUT_HANDLE    ((sint32)-10)
-    #define STD_OUTPUT_HANDLE   ((sint32)-11)
-    #define STD_ERROR_HANDLE    ((sint32)-12)
+    // #define STD_INPUT_HANDLE    ((sint32)-10)
+    // #define STD_OUTPUT_HANDLE   ((sint32)-11)
+    // #define STD_ERROR_HANDLE    ((sint32)-12)
 
-    _Noreturn void WINAPI ExitProcess(uint32 uExitCode);
-    void* WINAPI VirtualAlloc(void* lpAddress, sword dwSize, sint32 flAllocationType, sint32 flProtect);
-    HANDLE WINAPI GetStdHandle(sint32 nStdHandle);
+    // _Noreturn void WINAPI ExitProcess(uint32 uExitCode);
+    // void* WINAPI VirtualAlloc(void* lpAddress, sword dwSize, sint32 flAllocationType, sint32 flProtect);
+    // HANDLE WINAPI GetStdHandle(sint32 nStdHandle);
 
-    sint32 WINAPI WriteFile(
-        HANDLE hFile,
-        const void* lpBuffer,
-        sint32 nNumberOfBytesToWrite,
-        sint32* lpNumberOfBytesWritten,
-        void* lpOverlapped
-    );
+    // sint32 WINAPI WriteFile(
+    //     HANDLE hFile,
+    //     const void* lpBuffer,
+    //     sint32 nNumberOfBytesToWrite,
+    //     sint32* lpNumberOfBytesWritten,
+    //     void* lpOverlapped
+    // );
 
+
+    _Noreturn void oc_exit(int status)  {
+        ExitProcess(status);
+    }
 #elif OC_PLATFORM_UNIX
     #include <sys/mman.h>
     #include <unistd.h>
     // #define typeof __typeof__
     #define MAP_UNINITIALIZED 0x4000000
+
+    _Noreturn void exit(int status);
+    _Noreturn void oc_exit(int status)  {
+        exit(status);
+    }
 #else
     #error "invalid platform"
     // #define typeof __typeof__
@@ -76,15 +89,15 @@ typedef struct __declspec(intrin_type) {
 
 void *memset(void *s, int c, size_t n);
 void *memcpy(void *dest, const void *src, size_t n);
-// void exit(int status) __attribute__((noreturn));
 size_t strlen(const char *s);
 // int __attribute__((noreturn)) _oc_assert_fail(const char *assertion, const char *file, unsigned int line, const char *function);
 
-_Noreturn void oc_exit(int status)  {
-    ExitProcess(status);
-}
-
 #define assert(expr) ((expr) ? 1 : _oc_assert_fail(#expr, __FILE__, __LINE__, __func__))
+
+#define OC_DEFAULT_MAP_ENTRY_COUNT 512
+#define OC_DEFAULT_MAP_SEED 0xf8abc103ba79eb85LLu
+#define OC_LEN(arr) (sizeof(arr)/sizeof((arr)[0]))
+#define OC_PUN(value, type) ({ __typeof__(value) _v = (value); *(type*)&_v; })
 
 #define typeinfo_gen_type_variants_ptr1(type) \
                    type*                : OC_TYPE_POINTER, \
@@ -199,10 +212,16 @@ typedef struct {
 
 // #define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ typeof(x) ___p1 = (x); uint8 ___p[sizeof(x)]; memcpy(___p, &___p1, sizeof(x)); &___p; }) })
 // #define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ _oc_generic_tmp(x) ___p = (_oc_generic_tmp(x))(x); &___p; }) })
+
+#if __STDC_VERSION__ == 201710L
+#define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), null })
+// #define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ _oc_generic_tmp(x) ___p = _oc_generic_cast(x); &___p; }) })
+#else
 #define OC_MAKE_GENERIC(x) ((Oc_Generic){ typeinfo_kind(x), ({ _oc_generic_tmp(x) ___p = _oc_generic_cast(x); &___p; }) })
+#endif
+
 #define wprint(writer, fmt, ...) _oc_printw(writer, fmt OC_MAP(OC_MAKE_GENERIC, ##__VA_ARGS__))
-#define print(fmt, ...) _oc_printw(&stdout_writer, fmt OC_MAP(OC_MAKE_GENERIC, __VA_ARGS__))
-// #define print(fmt, ...) OC_MAP_1(a, b)
+#define print(fmt, ...) _oc_printw(&stdout_writer, fmt OC_MAP(OC_MAKE_GENERIC, ##__VA_ARGS__))
 #define eprint(fmt, ...) _oc_printw(&stderr_writer, fmt OC_MAP(OC_MAKE_GENERIC, ##__VA_ARGS__))
 
 #define OC_VA_NARGS(...) OC_VA_NARGS_IMPL(, ##__VA_ARGS__, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
@@ -250,8 +269,10 @@ typedef struct {
 #define OC_MAP_SEQ_15(transform_macro, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15) transform_macro(a1) transform_macro(a2) transform_macro(a3) transform_macro(a4) transform_macro(a5) transform_macro(a6) transform_macro(a7) transform_macro(a8) transform_macro(a9) transform_macro(a10) transform_macro(a11) transform_macro(a12) transform_macro(a13) transform_macro(a14) transform_macro(a15)
 #define OC_MAP_SEQ_16(transform_macro, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16) transform_macro(a1) transform_macro(a2) transform_macro(a3) transform_macro(a4) transform_macro(a5) transform_macro(a6) transform_macro(a7) transform_macro(a8) transform_macro(a9) transform_macro(a10) transform_macro(a11) transform_macro(a12) transform_macro(a13) transform_macro(a14) transform_macro(a15) transform_macro(a16)
 
+typedef uword (*WriteFunction)(void* writer, const void* data, uword data_size);
+
 typedef struct oc_writer {
-    uword (*write)(void* writer, const void* data, uword data_size);
+    WriteFunction write;
 } Oc_Writer;
 
 extern Oc_Writer stdout_writer;
@@ -259,7 +280,9 @@ extern Oc_Writer stderr_writer;
 void _oc_printw(void *writer, const char* fmt, ...);
 
 _Noreturn int _oc_assert_fail(const char *assertion, const char *file, unsigned int line, const char *function)  {
-    eprint("assert: {}:{}: {}\n", file, line, assertion);
+    // eprint("assert: {}:{}: {}\n", file, line, assertion);
+
+
     oc_exit(-1);
 }
 #ifdef OC_PLATFORM_WINDOWS
@@ -272,8 +295,8 @@ _Noreturn int _oc_assert_fail(const char *assertion, const char *file, unsigned 
         uword total_written = 0;
 
         while (total_written < data_size) {
-            sint32 written = 0;
-            if (!WriteFile(handle, data, data_size, &written, null)) {
+            uint32 written = 0;
+            if (!WriteFile(handle, data, data_size, (unsigned long*)&written, null)) {
                 eprint("WriteFile failed\n");
                 return 0;
             }
@@ -287,8 +310,8 @@ _Noreturn int _oc_assert_fail(const char *assertion, const char *file, unsigned 
         uword total_written = 0;
 
         while (total_written < data_size) {
-            sint32 written = 0;
-            if (!WriteFile(handle, data, data_size, &written, null)) {
+            uint32 written = 0;
+            if (!WriteFile(handle, data, data_size, (unsigned long*)&written, null)) {
                 eprint("WriteFile failed\n");
                 return 0;
             }
@@ -399,17 +422,17 @@ void* oc_arena_realloc(Oc_Arena* arena, void* old_ptr, uint64 old_size, uint64 s
     uword old_words = (old_size - 1) / sizeof(uword) + 1;
     uword new_words = (size - 1) / sizeof(uword) + 1;
 
-    print("oc_arena_realloc: old_ptr = {}, old_size = {}, size = {}\n", old_ptr, old_size, size);
+    // print("oc_arena_realloc: old_ptr = {}, old_size = {}, size = {}\n", old_ptr, old_size, size);
     assert(arena->current);
     if ((uint8*)old_ptr + old_size == (uint8*)(arena->current->data + arena->current->used)) {
         if (arena->current->used + (new_words - old_words) <= arena->current->size) {
-            print("oc_arena_realloc: Reusing memory :)\n");
+            // print("oc_arena_realloc: Reusing memory :)\n");
             // reuse memory
             arena->current->used += new_words - old_words;
             return old_ptr;
         }
     } else if (arena->current->used + new_words <= arena->current->size) {
-        print("oc_arena_realloc: Reusing chunk, but copying old data :|\n");
+        // print("oc_arena_realloc: Reusing chunk, but copying old data :|\n");
         // copy old data
         void* new_ptr = arena->current->data + arena->current->used;
         memcpy(new_ptr, old_ptr, old_size);
@@ -423,12 +446,12 @@ void* oc_arena_realloc(Oc_Arena* arena, void* old_ptr, uint64 old_size, uint64 s
 
     void* end_of_last_used = arena->current->data + arena->current->used;
     if ((uint8*)old_ptr + old_size == end_of_last_used && new_ptr == (uint8*)old_ptr + old_size) {
-        print("oc_arena_realloc: Reusing extended chunk :)\n");
+        // print("oc_arena_realloc: Reusing extended chunk :)\n");
         // If the new pointer is right after the old pointer, we can just extend it
         arena->current->used += new_words - old_words;
         return old_ptr;
     } else {
-        print("oc_arena_realloc: New chunk, copying data :(\n");
+        // print("oc_arena_realloc: New chunk, copying data :(\n");
         void* new_ptr = arena->current->data + arena->current->used;
         memcpy(new_ptr, old_ptr, old_size);
         arena->current->used += new_words;
@@ -495,11 +518,11 @@ void oc_sb_init(Oc_String_Builder* sb, Oc_Arena* arena) {
 }
 
 Oc_Writer stdout_writer = {
-    .write = stdout_write,
+    .write = (WriteFunction)stdout_write,
 };
 
 Oc_Writer stderr_writer = {
-    .write = stderr_write,
+    .write = (WriteFunction)stderr_write,
 };
 
 void oc_writer_format_and_write_int(Oc_Writer *writer, uint64 ivalue, uint64 base) {
@@ -570,8 +593,6 @@ void _oc_printw(void *writer, const char* fmt, ...) {
     Oc_Writer* w = writer;
     va_list args;
     va_start(args, fmt);
-    char int_buffer[128];
-    uword int_buffer_offset = 0;
 
     while (*fmt) {
         char c = *fmt;
@@ -731,3 +752,14 @@ void _oc_printw(void *writer, const char* fmt, ...) {
     }
     va_end(args);
 }
+
+#define oc_array_append(arena, array, value)                                               \
+    do {                                                                                \
+        if ((array)->count + 1 > (array)->capacity) {                                            \
+            uword new_cap = (array)->capacity ? (array)->capacity * 2 : 16;                         \
+            void* new_ptr = oc_arena_realloc(arena, (array)->items, (array)->capacity, new_cap); \
+            (array)->items = new_ptr;                                                      \
+            (array)->capacity = new_cap;                                                      \
+        }                                                                               \
+        (array)->items[(array)->count++] = value;                                             \
+    } while (0)
